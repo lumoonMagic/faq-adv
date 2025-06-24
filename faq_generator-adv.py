@@ -93,7 +93,12 @@ faq_map = {
 }
 
 
-assignees = list(set(json.loads(f["data"])["assignee"] for f in faqs))
+assignees = list(set(
+    f["data"]["assignee"]
+    for f in faqs
+    if f.get("data") and isinstance(f["data"], dict) and "assignee" in f["data"]
+))
+
 assignee = st.selectbox("Select Assignee", assignees)
 faq_options = [q for q in questions if json.loads(faq_map[q]["data"])["assignee"] == assignee]
 selected_q = st.selectbox("Select FAQ", faq_options)
