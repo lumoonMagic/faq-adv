@@ -36,8 +36,11 @@ def upload_screenshot(faq_id, step_num, file):
     file_path = f"{faq_id}/step_{step_num}.png"
     supabase.storage.from_("faq-screenshots").upload(
         file_path,
-        file.getvalue(),
-        {"content-type": "image/png", "upsert": True}
+        file.getvalue(),  # pass bytes
+        {
+            "contentType": "image/png",  # correct casing
+            "upsert": True
+        }
     )
     return f"{SUPABASE_URL}/storage/v1/object/public/faq-screenshots/{file_path}"
 
@@ -46,7 +49,10 @@ def upload_word_doc(faq_id, version, file_content):
     supabase.storage.from_("faq-docs").upload(
         file_path,
         file_content,
-        {"content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "upsert": True}
+        {
+            "contentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "upsert": True
+        }
     )
     return f"{SUPABASE_URL}/storage/v1/object/public/faq-docs/{file_path}"
 
@@ -73,7 +79,7 @@ def parse_uploaded_doc(doc_file):
             content["steps"][-1]["query"] += " " + text
             continue
         if "screenshot for step" in lower_text and content["steps"]:
-            continue  # Recognize caption, no image extract
+            continue  # Recognize caption, skip image
         if "note" in lower_text:
             current_section = "notes"
             continue
@@ -96,21 +102,21 @@ Validate if these steps address the FAQ question, highlight gaps, suggest improv
     response = model.generate_content(prompt)
     return response.text.strip()
 
-# --- APP START ---
+# --- APP ---
 st.title("📄 FAQ Generator + Validator (Advanced)")
 
-# Sidebar: Add FAQ
+# Sidebar
 st.sidebar.header("➕ Add New FAQ")
 new_q = st.sidebar.text_input("New FAQ Question")
 new_a = st.sidebar.text_input("Assign to")
 if st.sidebar.button("Add FAQ"):
     if new_q and new_a:
         add_faq(new_q, new_a)
-        st.sidebar.success("FAQ added! Please refresh to see it.")
+        st.sidebar.success("FAQ added! Please refresh.")
     else:
         st.sidebar.warning("Provide both question and assignee.")
 
-# Load data
+# Load + map
 faqs = load_faqs()
 faq_map = {}
 questions = []
@@ -128,19 +134,13 @@ for f in faqs:
             assignees_set.add(a)
 
 assignees = list(assignees_set)
-
-# Select
 assignee = st.selectbox("Select Assignee", assignees) if assignees else None
-faq_options = [
-    q for q in questions if faq_map[q]["data"].get("assignee") == assignee
-] if assignee else []
-
+faq_options = [q for q in questions if faq_map[q]["data"].get("assignee") == assignee] if assignee else []
 selected_q = st.selectbox("Select FAQ", faq_options) if faq_options else None
 faq_entry = faq_map.get(selected_q)
 faq_data = faq_entry["data"] if faq_entry else {}
 content = faq_data.get("content", {})
 
-# Delete
 if selected_q and st.button("🗑️ Delete this FAQ"):
     delete_faq(faq_entry["id"])
     st.success("FAQ deleted. Please refresh.")
@@ -154,10 +154,8 @@ if selected_q:
         st.session_state['steps'] = content.get("steps", [])
         st.success("Document parsed! Review below.")
 
-# Summary
 summary = st.text_area("Summary", value=content.get("summary", ""))
 
-# Steps
 if 'steps' not in st.session_state:
     st.session_state['steps'] = content.get("steps", [])
 
@@ -167,17 +165,20 @@ if st.button("Add Step"):
 for idx, step in enumerate(st.session_state['steps']):
     st.session_state['steps'][idx]["text"] = st.text_input(f"Step {idx+1} Text", value=step["text"], key=f"step_text_{idx}")
     st.session_state['steps'][idx]["query"] = st.text_area(f"Step {idx+1} Query", value=step["query"], key=f"step_query_{idx}")
-    uploaded_ss = st.file_uploader(f"Upload Screenshot for Step {idx+1}", type=['png', 'jpg'], key=f"step_ss_{idx}")
+    uploaded_ss = st.file_uploader(
+        f"Upload / Paste Screenshot for Step {idx+1}",
+        type=["png", "jpg", "jpeg"],
+        help="You can drag & drop or paste directly from your clipboard here.",
+        key=f"step_ss_{idx}"
+    )
     if uploaded_ss and faq_entry:
         url = upload_screenshot(faq_entry["id"], idx+1, uploaded_ss)
         st.session_state['steps'][idx]["screenshot"] = url
     if step["screenshot"]:
         st.image(step["screenshot"], caption=f"Step {idx+1} Screenshot")
 
-# Notes
 notes = st.text_area("Notes", value=content.get("notes", ""))
 
-# Validate
 if st.button("Validate with Gemini") and selected_q:
     steps_text = "\n".join([f"Step {i+1}: {s['text']}" for i, s in enumerate(st.session_state['steps'])])
     with st.spinner("Validating..."):
@@ -185,7 +186,6 @@ if st.button("Validate with Gemini") and selected_q:
     st.subheader("Gemini Feedback")
     st.write(feedback)
 
-# Generate DOCX
 if st.button("Generate Word Document") and selected_q:
     doc = Document()
     doc.add_heading("FAQ Document", level=1)
