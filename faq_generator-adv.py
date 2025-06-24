@@ -45,27 +45,33 @@ def upload_word_doc(faq_id, version, file_content):
 def parse_uploaded_doc(doc_file):
     doc = Document(doc_file)
     content = {"summary": "", "steps": [], "notes": ""}
-    current_section = ""
+    current_section = None
+
     for para in doc.paragraphs:
         text = para.text.strip()
         if not text:
             continue
-        if text.lower().startswith("summary"):
+
+        lower_text = text.lower()
+
+        if "summary" in lower_text:
             current_section = "summary"
             continue
-        if text.lower().startswith("step"):
+        if "step" in lower_text:
             current_section = "step"
             content["steps"].append({"text": text, "query": "", "screenshot": ""})
             continue
-        if text.lower().startswith("notes"):
+        if "note" in lower_text:
             current_section = "notes"
             continue
+
         if current_section == "summary":
             content["summary"] += " " + text
-        elif current_section == "step":
+        elif current_section == "step" and content["steps"]:
             content["steps"][-1]["text"] += " " + text
         elif current_section == "notes":
             content["notes"] += " " + text
+
     return content
 
 def validate_with_gemini(question, steps_text):
@@ -80,18 +86,18 @@ Validate if these steps address the FAQ question, highlight gaps, suggest improv
 # --- APP START ---
 st.title("📄 FAQ Generator + Validator (Advanced)")
 
-# --- Add FAQ sidebar ---
+# Sidebar: Add FAQ
 st.sidebar.header("➕ Add New FAQ")
 new_q = st.sidebar.text_input("New FAQ Question")
 new_a = st.sidebar.text_input("Assign to")
 if st.sidebar.button("Add FAQ"):
     if new_q and new_a:
         add_faq(new_q, new_a)
-        st.sidebar.success("FAQ added! Please refresh the app to see the update.")
+        st.sidebar.success("FAQ added! Please refresh to see the update.")
     else:
-        st.sidebar.warning("Please provide both question and assignee.")
+        st.sidebar.warning("Provide both question and assignee.")
 
-# --- Load and process FAQs ---
+# Load data
 faqs = load_faqs()
 faq_map = {}
 questions = []
@@ -110,36 +116,34 @@ for f in faqs:
 
 assignees = list(assignees_set)
 
-# --- Select Assignee + FAQ ---
+# Select
 assignee = st.selectbox("Select Assignee", assignees) if assignees else None
 faq_options = [
-    q for q in questions
-    if faq_map[q]["data"].get("assignee") == assignee
+    q for q in questions if faq_map[q]["data"].get("assignee") == assignee
 ] if assignee else []
 
 selected_q = st.selectbox("Select FAQ", faq_options) if faq_options else None
-
 faq_entry = faq_map.get(selected_q)
 faq_data = faq_entry["data"] if faq_entry else {}
 content = faq_data.get("content", {})
 
-# --- Delete FAQ ---
+# Delete
 if selected_q and st.button("🗑️ Delete this FAQ"):
     delete_faq(faq_entry["id"])
-    st.success("FAQ deleted. Please refresh the app.")
+    st.success("FAQ deleted. Please refresh.")
     st.stop()
 
-# --- Upload Word Doc Anytime ---
+# Upload existing doc
 if selected_q:
     uploaded_doc = st.file_uploader("Upload Existing FAQ Word Document (Optional)", type="docx")
     if uploaded_doc:
         content = parse_uploaded_doc(uploaded_doc)
-        st.success("Document parsed! Please review below.")
+        st.success("Document parsed! Review below.")
 
-# --- Summary ---
+# Summary
 summary = st.text_area("Summary", value=content.get("summary", ""))
 
-# --- Steps ---
+# Steps
 if 'steps' not in st.session_state:
     st.session_state['steps'] = content.get("steps", [])
 
@@ -156,10 +160,21 @@ for idx, step in enumerate(st.session_state['steps']):
     if step["screenshot"]:
         st.image(step["screenshot"], caption=f"Step {idx+1} Screenshot")
 
-# --- Notes ---
+# Extra uploader after parsing
+if uploaded_doc:
+    st.subheader("Upload Screenshots for Parsed Steps")
+    for idx, step in enumerate(st.session_state['steps']):
+        uploaded_ss = st.file_uploader(f"Upload Screenshot for Step {idx+1}: {step['text'][:50]}...", type=['png', 'jpg'], key=f"parsed_step_ss_{idx}")
+        if uploaded_ss and faq_entry:
+            url = upload_screenshot(faq_entry["id"], idx+1, uploaded_ss)
+            st.session_state['steps'][idx]["screenshot"] = url
+        if step["screenshot"]:
+            st.image(step["screenshot"], caption=f"Step {idx+1} Screenshot")
+
+# Notes
 notes = st.text_area("Notes", value=content.get("notes", ""))
 
-# --- Gemini Validation ---
+# Validate
 if st.button("Validate with Gemini") and selected_q:
     steps_text = "\n".join([f"Step {i+1}: {s['text']}" for i, s in enumerate(st.session_state['steps'])])
     with st.spinner("Validating..."):
@@ -167,7 +182,7 @@ if st.button("Validate with Gemini") and selected_q:
     st.subheader("Gemini Feedback")
     st.write(feedback)
 
-# --- Generate Word Document ---
+# Generate DOCX
 if st.button("Generate Word Document") and selected_q:
     doc = Document()
     doc.add_heading(selected_q, level=1)
