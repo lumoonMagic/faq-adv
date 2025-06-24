@@ -23,6 +23,13 @@ def load_faqs():
 def save_faq_data(faq_id, data):
     supabase.table("faqs").update({"data": data, "updated_at": "now()"}).eq("id", faq_id).execute()
 
+def add_faq(question, assignee):
+    data = {"question": question, "assignee": assignee}
+    supabase.table("faqs").insert({"data": data}).execute()
+
+def delete_faq(faq_id):
+    supabase.table("faqs").delete().eq("id", faq_id).execute()
+
 def upload_screenshot(faq_id, step_num, file):
     file_path = f"{faq_id}/step_{step_num}.png"
     supabase.storage.from_("faq-screenshots").upload(file_path, file, {"content-type": "image/png", "upsert": True})
@@ -71,11 +78,11 @@ Validate if these steps address the FAQ question, highlight gaps, suggest improv
     return response.text.strip()
 
 # --- APP START ---
-st.title("📄 FAQ Generator + Validator")
+st.title("📄 FAQ Generator + Validator (Advanced)")
 
 faqs = load_faqs()
 
-# Safely extract questions and build map
+# Build questions, map, assignees safely
 faq_map = {}
 questions = []
 assignees_set = set()
@@ -83,17 +90,28 @@ assignees_set = set()
 for f in faqs:
     data = f.get("data")
     if isinstance(data, dict):
-        question = data.get("question")
-        assignee = data.get("assignee")
-        if question:
-            questions.append(question)
-            faq_map[question] = f
-        if assignee:
-            assignees_set.add(assignee)
+        q = data.get("question")
+        a = data.get("assignee")
+        if q:
+            questions.append(q)
+            faq_map[q] = f
+        if a:
+            assignees_set.add(a)
 
 assignees = list(assignees_set)
 
-# UI
+# --- Add New FAQ ---
+st.sidebar.header("➕ Add New FAQ")
+new_q = st.sidebar.text_input("New FAQ Question")
+new_a = st.sidebar.text_input("Assign to")
+if st.sidebar.button("Add FAQ"):
+    if new_q and new_a:
+        add_faq(new_q, new_a)
+        st.sidebar.success("FAQ added! Refresh to see it.")
+    else:
+        st.sidebar.warning("Please provide both question + assignee.")
+
+# --- Select Assignee + FAQ ---
 assignee = st.selectbox("Select Assignee", assignees) if assignees else None
 faq_options = [
     q for q in questions
@@ -106,17 +124,23 @@ faq_entry = faq_map.get(selected_q)
 faq_data = faq_entry["data"] if faq_entry else {}
 content = faq_data.get("content", {})
 
-# Upload existing doc if no content
-if selected_q and not content:
-    st.info("No structured data found for this FAQ. Upload a previously generated Word document to extract info.")
-    uploaded_doc = st.file_uploader("Upload Existing FAQ Word Document", type="docx")
+# --- Delete FAQ ---
+if selected_q and st.button("🗑️ Delete this FAQ"):
+    delete_faq(faq_entry["id"])
+    st.success("FAQ deleted. Please refresh.")
+    st.stop()
+
+# --- Upload Word Doc Anytime ---
+if selected_q:
+    uploaded_doc = st.file_uploader("Upload Existing FAQ Word Document (Optional)", type="docx")
     if uploaded_doc:
         content = parse_uploaded_doc(uploaded_doc)
         st.success("Document parsed! Please review below.")
 
+# --- Summary ---
 summary = st.text_area("Summary", value=content.get("summary", ""))
 
-# Steps
+# --- Steps ---
 if 'steps' not in st.session_state:
     st.session_state['steps'] = content.get("steps", [])
 
@@ -133,9 +157,10 @@ for idx, step in enumerate(st.session_state['steps']):
     if step["screenshot"]:
         st.image(step["screenshot"], caption=f"Step {idx+1} Screenshot")
 
+# --- Notes ---
 notes = st.text_area("Notes", value=content.get("notes", ""))
 
-# Gemini Validation
+# --- Gemini Validation ---
 if st.button("Validate with Gemini") and selected_q:
     steps_text = "\n".join([f"Step {i+1}: {s['text']}" for i, s in enumerate(st.session_state['steps'])])
     with st.spinner("Validating..."):
@@ -143,7 +168,7 @@ if st.button("Validate with Gemini") and selected_q:
     st.subheader("Gemini Feedback")
     st.write(feedback)
 
-# Generate Word Document
+# --- Generate Word Document ---
 if st.button("Generate Word Document") and selected_q:
     doc = Document()
     doc.add_heading(selected_q, level=1)
