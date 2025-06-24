@@ -7,6 +7,7 @@ import io
 import datetime
 import re
 import requests
+import httpx
 from supabase import create_client
 import google.generativeai as genai
 
@@ -34,26 +35,30 @@ def delete_faq(faq_id):
 
 def upload_screenshot(faq_id, step_num, file):
     file_path = f"{faq_id}/step_{step_num}.png"
-    supabase.storage.from_("faq-screenshots").upload(
-        file_path,
-        file.getvalue(),
-        {
-            "contentType": "image/png",
-            "upsert": True
-        }
-    )
+    url = f"{SUPABASE_URL}/storage/v1/object/faq-screenshots/{file_path}"
+    headers = {
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "image/png",
+        "x-upsert": "true"
+    }
+    response = httpx.post(url, headers=headers, content=file.getvalue())
+    if response.status_code not in [200, 201]:
+        st.error(f"Upload failed: {response.status_code}, {response.text}")
+        return None
     return f"{SUPABASE_URL}/storage/v1/object/public/faq-screenshots/{file_path}"
 
 def upload_word_doc(faq_id, version, file_content):
     file_path = f"faq-{faq_id}-v{version}.docx"
-    supabase.storage.from_("faq-docs").upload(
-        file_path,
-        file_content,
-        {
-            "contentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "upsert": True
-        }
-    )
+    url = f"{SUPABASE_URL}/storage/v1/object/faq-docs/{file_path}"
+    headers = {
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "x-upsert": "true"
+    }
+    response = httpx.post(url, headers=headers, content=file_content.getvalue())
+    if response.status_code not in [200, 201]:
+        st.error(f"Upload failed: {response.status_code}, {response.text}")
+        return None
     return f"{SUPABASE_URL}/storage/v1/object/public/faq-docs/{file_path}"
 
 def parse_uploaded_doc(doc_file):
@@ -65,15 +70,14 @@ def parse_uploaded_doc(doc_file):
         text = para.text.strip()
         if not text:
             continue
-
         lower_text = text.lower()
-
         if "summary" in lower_text:
             current_section = "summary"
             continue
         if lower_text == "steps" or re.match(r"(step\s*\d+[:\-]?)", lower_text):
             current_section = "step"
-            content["steps"].append({"text": text, "query": "", "screenshot": ""}) if re.match(r"(step\s*\d+[:\-]?)", lower_text) else None
+            if re.match(r"(step\s*\d+[:\-]?)", lower_text):
+                content["steps"].append({"text": text, "query": "", "screenshot": ""})
             continue
         if ("query template" in lower_text or lower_text.startswith("query:")) and content["steps"]:
             content["steps"][-1]["query"] += " " + text
@@ -83,14 +87,12 @@ def parse_uploaded_doc(doc_file):
         if lower_text.startswith("additional notes") or "note" in lower_text:
             current_section = "notes"
             continue
-
         if current_section == "summary" and lower_text not in ["steps", "step", "additional notes"]:
             content["summary"] += " " + text
         elif current_section == "step" and content["steps"]:
             content["steps"][-1]["text"] += " " + text
         elif current_section == "notes":
             content["notes"] += " " + text
-
     return content
 
 def validate_with_gemini(question, steps_text):
@@ -150,6 +152,7 @@ if selected_q:
         content = parse_uploaded_doc(uploaded_doc)
         st.session_state['steps'] = content.get("steps", [])
         st.success("Document parsed! Review below.")
+        st.json(content)
 
 summary = st.text_area("Summary", value=content.get("summary", ""))
 
@@ -170,7 +173,8 @@ for idx, step in enumerate(st.session_state['steps']):
     )
     if uploaded_ss and faq_entry:
         url = upload_screenshot(faq_entry["id"], idx+1, uploaded_ss)
-        st.session_state['steps'][idx]["screenshot"] = url
+        if url:
+            st.session_state['steps'][idx]["screenshot"] = url
     if step["screenshot"]:
         st.image(step["screenshot"], caption=f"Step {idx+1} Screenshot")
 
