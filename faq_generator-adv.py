@@ -37,8 +37,10 @@ def upload_screenshot(faq_id, step_num, file):
     supabase.storage.from_("faq-screenshots").upload(
         file_path,
         file.getvalue(),
-        content_type="image/png",
-        upsert=True
+        {
+            "contentType": "image/png",
+            "upsert": True
+        }
     )
     return f"{SUPABASE_URL}/storage/v1/object/public/faq-screenshots/{file_path}"
 
@@ -47,8 +49,10 @@ def upload_word_doc(faq_id, version, file_content):
     supabase.storage.from_("faq-docs").upload(
         file_path,
         file_content,
-        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        upsert=True
+        {
+            "contentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "upsert": True
+        }
     )
     return f"{SUPABASE_URL}/storage/v1/object/public/faq-docs/{file_path}"
 
@@ -161,7 +165,7 @@ for idx, step in enumerate(st.session_state['steps']):
     uploaded_ss = st.file_uploader(
         f"Upload / Paste Screenshot for Step {idx+1}",
         type=["png", "jpg", "jpeg"],
-        help="You can drag & drop or paste from clipboard.",
+        help="Drag, drop or paste screenshot.",
         key=f"step_ss_{idx}"
     )
     if uploaded_ss and faq_entry:
