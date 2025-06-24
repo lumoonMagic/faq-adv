@@ -75,7 +75,17 @@ Validate if these steps address the FAQ question, highlight gaps, suggest improv
 st.title("📄 FAQ Generator + Validator")
 
 faqs = load_faqs()
-questions = [f["data"]["question"] for f in faqs]
+questions = [
+    f["data"].get("question", "Unnamed FAQ") 
+    for f in faqs 
+    if f.get("data") and isinstance(f["data"], dict)
+]
+faq_map = {
+    f["data"].get("question", f["id"]): f
+    for f in faqs
+    if f.get("data") and isinstance(f["data"], dict)
+}
+
 faq_map = {f["data"]["question"]: f for f in faqs}
 
 assignees = list(set(json.loads(f["data"])["assignee"] for f in faqs))
