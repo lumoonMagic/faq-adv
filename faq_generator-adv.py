@@ -48,7 +48,6 @@ def parse_uploaded_doc(doc_file):
             continue
         if text.lower().startswith("step"):
             current_section = "step"
-            step_num = len(content["steps"]) + 1
             content["steps"].append({"text": text, "query": "", "screenshot": ""})
             continue
         if text.lower().startswith("notes"):
@@ -75,46 +74,40 @@ Validate if these steps address the FAQ question, highlight gaps, suggest improv
 st.title("📄 FAQ Generator + Validator")
 
 faqs = load_faqs()
-questions = [
-    f["data"].get("question", "Unnamed FAQ") 
-    for f in faqs 
-    if f.get("data") and isinstance(f["data"], dict)
-]
-faq_map = {
-    f["data"].get("question", f["id"]): f
-    for f in faqs
-    if f.get("data") and isinstance(f["data"], dict)
-}
 
-faq_map = {
-    f["data"]["question"]: f
-    for f in faqs
-    if f.get("data") and isinstance(f["data"], dict) and "question" in f["data"]
-}
+# Safely extract questions and build map
+faq_map = {}
+questions = []
+assignees_set = set()
 
+for f in faqs:
+    data = f.get("data")
+    if isinstance(data, dict):
+        question = data.get("question")
+        assignee = data.get("assignee")
+        if question:
+            questions.append(question)
+            faq_map[question] = f
+        if assignee:
+            assignees_set.add(assignee)
 
-assignees = list(set(
-    f["data"]["assignee"]
-    for f in faqs
-    if f.get("data") and isinstance(f["data"], dict) and "assignee" in f["data"]
-))
+assignees = list(assignees_set)
 
-assignee = st.selectbox("Select Assignee", assignees)
+# UI
+assignee = st.selectbox("Select Assignee", assignees) if assignees else None
 faq_options = [
     q for q in questions
-    if faq_map[q].get("data")
-    and isinstance(faq_map[q]["data"], dict)
-    and faq_map[q]["data"].get("assignee") == assignee
-]
+    if faq_map[q]["data"].get("assignee") == assignee
+] if assignee else []
 
-selected_q = st.selectbox("Select FAQ", faq_options)
+selected_q = st.selectbox("Select FAQ", faq_options) if faq_options else None
 
 faq_entry = faq_map.get(selected_q)
-faq_data = json.loads(faq_entry["data"]) if faq_entry else {}
+faq_data = faq_entry["data"] if faq_entry else {}
 content = faq_data.get("content", {})
 
-# Upload existing Word doc if no content
-if not content:
+# Upload existing doc if no content
+if selected_q and not content:
     st.info("No structured data found for this FAQ. Upload a previously generated Word document to extract info.")
     uploaded_doc = st.file_uploader("Upload Existing FAQ Word Document", type="docx")
     if uploaded_doc:
@@ -134,7 +127,7 @@ for idx, step in enumerate(st.session_state['steps']):
     st.session_state['steps'][idx]["text"] = st.text_input(f"Step {idx+1} Text", value=step["text"], key=f"step_text_{idx}")
     st.session_state['steps'][idx]["query"] = st.text_area(f"Step {idx+1} Query", value=step["query"], key=f"step_query_{idx}")
     uploaded_ss = st.file_uploader(f"Upload Screenshot for Step {idx+1}", type=['png', 'jpg'], key=f"step_ss_{idx}")
-    if uploaded_ss:
+    if uploaded_ss and faq_entry:
         url = upload_screenshot(faq_entry["id"], idx+1, uploaded_ss)
         st.session_state['steps'][idx]["screenshot"] = url
     if step["screenshot"]:
@@ -143,15 +136,15 @@ for idx, step in enumerate(st.session_state['steps']):
 notes = st.text_area("Notes", value=content.get("notes", ""))
 
 # Gemini Validation
-if st.button("Validate with Gemini"):
+if st.button("Validate with Gemini") and selected_q:
     steps_text = "\n".join([f"Step {i+1}: {s['text']}" for i, s in enumerate(st.session_state['steps'])])
     with st.spinner("Validating..."):
         feedback = validate_with_gemini(selected_q, steps_text)
     st.subheader("Gemini Feedback")
     st.write(feedback)
 
-# Generate Word Doc
-if st.button("Generate Word Document"):
+# Generate Word Document
+if st.button("Generate Word Document") and selected_q:
     doc = Document()
     doc.add_heading(selected_q, level=1)
     doc.add_heading("Summary", level=2)
@@ -168,12 +161,10 @@ if st.button("Generate Word Document"):
     doc.save(temp_stream)
     temp_stream.seek(0)
 
-    # Determine version
     versions = faq_data.get("doc_versions", [])
     new_version = len(versions) + 1
     doc_url = upload_word_doc(faq_entry["id"], new_version, temp_stream)
 
-    # Update DB
     faq_data["content"] = {
         "summary": summary,
         "steps": st.session_state['steps'],
@@ -184,7 +175,9 @@ if st.button("Generate Word Document"):
         "generated_at": datetime.datetime.utcnow().isoformat() + "Z"
     })
     faq_data["doc_versions"] = versions
-    save_faq_data(faq_entry["id"], json.dumps(faq_data))
+    save_faq_data(faq_entry["id"], faq_data)
 
     st.success("Word document generated and uploaded!")
-    st.download_button("Download Latest Document", data=temp_stream.getvalue(), file_name=f"FAQ_{selected_q}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    st.download_button("Download Latest Document", data=temp_stream.getvalue(),
+                       file_name=f"FAQ_{selected_q}.docx",
+                       mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
