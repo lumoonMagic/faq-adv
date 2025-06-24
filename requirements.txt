@@ -1,4 +1,7 @@
 streamlit
 python-docx
 supabase
+storage3
+requests
 google-generativeai
+
