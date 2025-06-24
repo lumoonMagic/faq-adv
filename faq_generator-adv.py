@@ -80,9 +80,19 @@ Validate if these steps address the FAQ question, highlight gaps, suggest improv
 # --- APP START ---
 st.title("📄 FAQ Generator + Validator (Advanced)")
 
-faqs = load_faqs()
+# --- Add FAQ sidebar ---
+st.sidebar.header("➕ Add New FAQ")
+new_q = st.sidebar.text_input("New FAQ Question")
+new_a = st.sidebar.text_input("Assign to")
+if st.sidebar.button("Add FAQ"):
+    if new_q and new_a:
+        add_faq(new_q, new_a)
+        st.sidebar.success("FAQ added! Please refresh the app to see the update.")
+    else:
+        st.sidebar.warning("Please provide both question and assignee.")
 
-# Build questions, map, assignees safely
+# --- Load and process FAQs ---
+faqs = load_faqs()
 faq_map = {}
 questions = []
 assignees_set = set()
@@ -100,17 +110,6 @@ for f in faqs:
 
 assignees = list(assignees_set)
 
-# --- Add New FAQ ---
-st.sidebar.header("➕ Add New FAQ")
-new_q = st.sidebar.text_input("New FAQ Question")
-new_a = st.sidebar.text_input("Assign to")
-if st.sidebar.button("Add FAQ"):
-    if new_q and new_a:
-        add_faq(new_q, new_a)
-        st.sidebar.success("FAQ added! Refresh to see it.")
-    else:
-        st.sidebar.warning("Please provide both question + assignee.")
-
 # --- Select Assignee + FAQ ---
 assignee = st.selectbox("Select Assignee", assignees) if assignees else None
 faq_options = [
@@ -127,7 +126,7 @@ content = faq_data.get("content", {})
 # --- Delete FAQ ---
 if selected_q and st.button("🗑️ Delete this FAQ"):
     delete_faq(faq_entry["id"])
-    st.success("FAQ deleted. Please refresh.")
+    st.success("FAQ deleted. Please refresh the app.")
     st.stop()
 
 # --- Upload Word Doc Anytime ---
