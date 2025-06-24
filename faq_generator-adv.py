@@ -100,7 +100,13 @@ assignees = list(set(
 ))
 
 assignee = st.selectbox("Select Assignee", assignees)
-faq_options = [q for q in questions if json.loads(faq_map[q]["data"])["assignee"] == assignee]
+faq_options = [
+    q for q in questions
+    if faq_map[q].get("data")
+    and isinstance(faq_map[q]["data"], dict)
+    and faq_map[q]["data"].get("assignee") == assignee
+]
+
 selected_q = st.selectbox("Select FAQ", faq_options)
 
 faq_entry = faq_map.get(selected_q)
