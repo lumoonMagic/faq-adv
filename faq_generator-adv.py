@@ -17,18 +17,18 @@ genai.configure(api_key=GEMINI_API_KEY)
 
 # --- UTILS ---
 def load_faqs():
-    resp = supabase.table("faqs").select("*").execute()
+    resp = supabase.table("faqs_adv").select("*").execute()
     return resp.data if resp.data else []
 
 def save_faq_data(faq_id, data):
-    supabase.table("faqs").update({"data": data, "updated_at": "now()"}).eq("id", faq_id).execute()
+    supabase.table("faqs_adv").update({"data": data, "updated_at": "now()"}).eq("id", faq_id).execute()
 
 def add_faq(question, assignee):
     data = {"question": question, "assignee": assignee}
-    supabase.table("faqs").insert({"data": data}).execute()
+    supabase.table("faqs_adv").insert({"data": data}).execute()
 
 def delete_faq(faq_id):
-    supabase.table("faqs").delete().eq("id", faq_id).execute()
+    supabase.table("faqs_adv").delete().eq("id", faq_id).execute()
 
 def upload_screenshot(faq_id, step_num, file):
     file_path = f"{faq_id}/step_{step_num}.png"
