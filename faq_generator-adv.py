@@ -5,6 +5,7 @@ import tempfile
 import json
 import io
 import datetime
+import re
 from supabase import create_client
 import google.generativeai as genai
 
@@ -32,14 +33,20 @@ def delete_faq(faq_id):
 
 def upload_screenshot(faq_id, step_num, file):
     file_path = f"{faq_id}/step_{step_num}.png"
-    supabase.storage.from_("faq-screenshots").upload(file_path, file, {"content-type": "image/png", "upsert": True})
+    supabase.storage.from_("faq-screenshots").upload(
+        file_path,
+        file.getvalue(),
+        {"content-type": "image/png", "upsert": True}
+    )
     return f"{SUPABASE_URL}/storage/v1/object/public/faq-screenshots/{file_path}"
 
 def upload_word_doc(faq_id, version, file_content):
     file_path = f"faq-{faq_id}-v{version}.docx"
-    supabase.storage.from_("faq-docs").upload(file_path, file_content, {
-        "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "upsert": True
-    })
+    supabase.storage.from_("faq-docs").upload(
+        file_path,
+        file_content,
+        {"content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "upsert": True}
+    )
     return f"{SUPABASE_URL}/storage/v1/object/public/faq-docs/{file_path}"
 
 def parse_uploaded_doc(doc_file):
@@ -57,9 +64,12 @@ def parse_uploaded_doc(doc_file):
         if "summary" in lower_text:
             current_section = "summary"
             continue
-        if "step" in lower_text:
+        if re.match(r"(step\s*\d+[:\-]?)", lower_text):
             current_section = "step"
             content["steps"].append({"text": text, "query": "", "screenshot": ""})
+            continue
+        if lower_text.startswith("query:") and content["steps"]:
+            content["steps"][-1]["query"] += " " + text
             continue
         if "note" in lower_text:
             current_section = "notes"
@@ -93,7 +103,7 @@ new_a = st.sidebar.text_input("Assign to")
 if st.sidebar.button("Add FAQ"):
     if new_q and new_a:
         add_faq(new_q, new_a)
-        st.sidebar.success("FAQ added! Please refresh to see the update.")
+        st.sidebar.success("FAQ added! Please refresh to see it.")
     else:
         st.sidebar.warning("Provide both question and assignee.")
 
@@ -133,11 +143,12 @@ if selected_q and st.button("🗑️ Delete this FAQ"):
     st.success("FAQ deleted. Please refresh.")
     st.stop()
 
-# Upload existing doc
+# Upload doc
 if selected_q:
     uploaded_doc = st.file_uploader("Upload Existing FAQ Word Document (Optional)", type="docx")
     if uploaded_doc:
         content = parse_uploaded_doc(uploaded_doc)
+        st.session_state['steps'] = content.get("steps", [])
         st.success("Document parsed! Review below.")
 
 # Summary
@@ -159,17 +170,6 @@ for idx, step in enumerate(st.session_state['steps']):
         st.session_state['steps'][idx]["screenshot"] = url
     if step["screenshot"]:
         st.image(step["screenshot"], caption=f"Step {idx+1} Screenshot")
-
-# Extra uploader after parsing
-if uploaded_doc:
-    st.subheader("Upload Screenshots for Parsed Steps")
-    for idx, step in enumerate(st.session_state['steps']):
-        uploaded_ss = st.file_uploader(f"Upload Screenshot for Step {idx+1}: {step['text'][:50]}...", type=['png', 'jpg'], key=f"parsed_step_ss_{idx}")
-        if uploaded_ss and faq_entry:
-            url = upload_screenshot(faq_entry["id"], idx+1, uploaded_ss)
-            st.session_state['steps'][idx]["screenshot"] = url
-        if step["screenshot"]:
-            st.image(step["screenshot"], caption=f"Step {idx+1} Screenshot")
 
 # Notes
 notes = st.text_area("Notes", value=content.get("notes", ""))
@@ -216,7 +216,7 @@ if st.button("Generate Word Document") and selected_q:
     faq_data["doc_versions"] = versions
     save_faq_data(faq_entry["id"], faq_data)
 
-    st.success("Word document generated and uploaded!")
+    st.success("Word document generated + uploaded!")
     st.download_button("Download Latest Document", data=temp_stream.getvalue(),
                        file_name=f"FAQ_{selected_q}.docx",
                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
