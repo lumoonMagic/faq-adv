@@ -6,6 +6,7 @@ import json
 import io
 import datetime
 import re
+import requests
 from supabase import create_client
 import google.generativeai as genai
 
@@ -68,9 +69,11 @@ def parse_uploaded_doc(doc_file):
             current_section = "step"
             content["steps"].append({"text": text, "query": "", "screenshot": ""})
             continue
-        if lower_text.startswith("query:") and content["steps"]:
+        if ("query template" in lower_text or lower_text.startswith("query:")) and content["steps"]:
             content["steps"][-1]["query"] += " " + text
             continue
+        if "screenshot for step" in lower_text and content["steps"]:
+            continue  # Recognize caption, no image extract
         if "note" in lower_text:
             current_section = "notes"
             continue
@@ -185,15 +188,24 @@ if st.button("Validate with Gemini") and selected_q:
 # Generate DOCX
 if st.button("Generate Word Document") and selected_q:
     doc = Document()
-    doc.add_heading(selected_q, level=1)
+    doc.add_heading("FAQ Document", level=1)
+    doc.add_heading("Question", level=2)
+    doc.add_paragraph(selected_q)
     doc.add_heading("Summary", level=2)
     doc.add_paragraph(summary)
     doc.add_heading("Steps", level=2)
     for idx, step in enumerate(st.session_state['steps']):
         doc.add_paragraph(f"Step {idx+1}: {step['text']}")
         if step["query"]:
-            doc.add_paragraph(f"Query: {step['query']}")
-    doc.add_heading("Notes", level=2)
+            doc.add_paragraph(f"Query Template: {step['query']}")
+        if step["screenshot"]:
+            doc.add_paragraph(f"Screenshot for Step {idx+1}:")
+            img_data = requests.get(step["screenshot"]).content
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
+                tmpfile.write(img_data)
+                tmpfile.flush()
+                doc.add_picture(tmpfile.name, width=Inches(4))
+    doc.add_heading("Additional Notes", level=2)
     doc.add_paragraph(notes)
 
     temp_stream = io.BytesIO()
