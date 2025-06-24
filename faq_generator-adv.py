@@ -75,8 +75,8 @@ Validate if these steps address the FAQ question, highlight gaps, suggest improv
 st.title("📄 FAQ Generator + Validator")
 
 faqs = load_faqs()
-questions = [json.loads(f["data"])["question"] for f in faqs]
-faq_map = {json.loads(f["data"])["question"]: f for f in faqs}
+questions = [f["data"]["question"] for f in faqs]
+faq_map = {f["data"]["question"]: f for f in faqs}
 
 assignees = list(set(json.loads(f["data"])["assignee"] for f in faqs))
 assignee = st.selectbox("Select Assignee", assignees)
