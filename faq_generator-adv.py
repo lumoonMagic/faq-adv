@@ -51,10 +51,11 @@ def parse_uploaded_doc(doc_file):
             current_section = "summary"
             continue
         elif line == "[Steps]":
-            current_section = "steps"
+            current_section = None
             continue
         elif re.match(r"\[Step \d+\]", line):
             content["steps"].append({"text": "", "query": "", "screenshot": ""})
+            current_section = "step_text"
             continue
         elif line == "[Query Template]":
             current_section = "query"
@@ -68,15 +69,12 @@ def parse_uploaded_doc(doc_file):
 
         if current_section == "summary":
             content["summary"] += line + " "
-        elif current_section == "steps":
+        elif current_section == "step_text":
             if content["steps"]:
                 content["steps"][-1]["text"] += line + " "
         elif current_section == "query":
             if content["steps"]:
                 content["steps"][-1]["query"] += line + " "
-        elif current_section == "screenshot":
-            # marker only, no action needed; image handled separately
-            continue
         elif current_section == "notes":
             content["notes"] += line + " "
 
@@ -143,10 +141,7 @@ if uploaded_doc and not st.session_state['parsed_doc']:
     st.session_state['summary'] = parsed.get("summary", "")
     st.session_state['notes'] = parsed.get("notes", "")
     st.session_state['parsed_doc'] = True
-    st.session_state['uploaded_doc'] = None  # Clear after parse
-    st.success("Document parsed! Review below.")
-    with st.expander("🔍 Parsed Document JSON"):
-        st.json(parsed)
+    st.experimental_rerun()  # Clear uploader & refresh
 
 summary = st.text_area("Summary", value=st.session_state.get("summary", ""))
 notes = st.text_area("Notes", value=st.session_state.get("notes", ""))
