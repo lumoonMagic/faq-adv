@@ -39,45 +39,39 @@ def upload_screenshot(faq_id, step_num, file):
 def parse_uploaded_doc(doc_file):
     doc = Document(doc_file)
     content = {"summary": "", "steps": [], "notes": ""}
+    lines = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    
     current_section = None
 
-    for para in doc.paragraphs:
-        text = para.text.strip()
-        if not text:
-            continue
-        lower_text = text.lower()
+    for line in lines:
+        lower = line.lower()
 
-        if "summary" in lower_text:
+        if lower == "summary":
             current_section = "summary"
             continue
-        if lower_text.startswith("steps") or lower_text.startswith("step"):
-            current_section = "step"
-            if re.match(r"(step\s*\d+[:\-]?)", lower_text):
-                content["steps"].append({"text": text, "query": "", "screenshot": ""})
+        elif lower == "steps":
+            current_section = "steps"
             continue
-        if lower_text.startswith("additional notes") or "note" in lower_text:
+        elif lower.startswith("step"):
+            current_section = "steps"
+            content["steps"].append({"text": line, "query": "", "screenshot": ""})
+            continue
+        elif lower.startswith("additional notes"):
             current_section = "notes"
             continue
 
         if current_section == "summary":
-            if lower_text.startswith("steps") or lower_text.startswith("step") or lower_text.startswith("additional notes"):
-                current_section = None
-            else:
-                content["summary"] += text + "\n"
-
-        elif current_section == "step":
-            if re.match(r"(step\s*\d+[:\-]?)", lower_text):
-                content["steps"].append({"text": text, "query": "", "screenshot": ""})
-            elif "query template" in lower_text or lower_text.startswith("query:"):
-                if content["steps"]:
-                    content["steps"][-1]["query"] += " " + text
-            elif "screenshot for step" in lower_text:
-                continue
-            elif content["steps"]:
-                content["steps"][-1]["text"] += " " + text
-
+            content["summary"] += line + " "
+        elif current_section == "steps":
+            if content["steps"]:
+                if lower.startswith("query template"):
+                    content["steps"][-1]["query"] += " " + line
+                elif "screenshot" in lower:
+                    continue
+                else:
+                    content["steps"][-1]["text"] += " " + line
         elif current_section == "notes":
-            content["notes"] += text + "\n"
+            content["notes"] += line + " "
 
     content["summary"] = content["summary"].strip()
     content["notes"] = content["notes"].strip()
