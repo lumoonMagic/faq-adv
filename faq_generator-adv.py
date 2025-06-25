@@ -121,7 +121,6 @@ faq_entry = faq_map.get(selected_q)
 faq_data = faq_entry["data"] if faq_entry else {}
 content = faq_data.get("content", {})
 
-# Reset state on FAQ change
 if 'last_selected_q' not in st.session_state:
     st.session_state['last_selected_q'] = None
 
@@ -134,7 +133,6 @@ if selected_q != st.session_state['last_selected_q']:
     st.session_state['uploaded_doc'] = None
     st.session_state['last_selected_q'] = selected_q
 
-# Use dynamic key to reset uploader cleanly
 uploaded_doc = st.file_uploader("Upload Word Document", type="docx", key=f"doc_upload_{selected_q}")
 if uploaded_doc and not st.session_state['parsed_doc']:
     parsed = parse_uploaded_doc(uploaded_doc)
@@ -153,14 +151,23 @@ if st.button("Add Step"):
     st.session_state['steps'].append({"text": "", "query": "", "screenshot": ""})
 
 for idx, step in enumerate(st.session_state['steps']):
-    st.session_state['steps'][idx]["text"] = st.text_input(f"Step {idx+1} Text", value=step["text"], key=f"text_{idx}_{selected_q}")
-    st.session_state['steps'][idx]["query"] = st.text_area(f"Step {idx+1} Query", value=step["query"], key=f"query_{idx}_{selected_q}")
-    uploaded_ss = st.file_uploader(f"Upload Screenshot for Step {idx+1}", type=["png", "jpg"], key=f"ss_{idx}_{selected_q}")
-    if uploaded_ss:
-        st.session_state['pending_screenshots'][idx+1] = uploaded_ss
-        st.image(uploaded_ss, caption=f"Pending upload Step {idx+1} Screenshot", width=300)
-    elif step["screenshot"]:
-        st.image(step["screenshot"], caption=f"Saved Step {idx+1} Screenshot", width=300)
+    col1, col2 = st.columns([5, 1])
+    with col1:
+        st.session_state['steps'][idx]["text"] = st.text_input(
+            f"Step {idx+1} Text", value=step["text"], key=f"text_{idx}_{selected_q}")
+        st.session_state['steps'][idx]["query"] = st.text_area(
+            f"Step {idx+1} Query", value=step["query"], key=f"query_{idx}_{selected_q}")
+        uploaded_ss = st.file_uploader(
+            f"Upload Screenshot for Step {idx+1}", type=["png", "jpg"], key=f"ss_{idx}_{selected_q}")
+        if uploaded_ss:
+            st.session_state['pending_screenshots'][idx+1] = uploaded_ss
+            st.image(uploaded_ss, caption=f"Pending upload Step {idx+1} Screenshot", width=300)
+        elif step["screenshot"]:
+            st.image(step["screenshot"], caption=f"Saved Step {idx+1} Screenshot", width=300)
+    with col2:
+        if st.button(f"➖", key=f"remove_{idx}_{selected_q}"):
+            st.session_state['steps'].pop(idx)
+            st.experimental_rerun()
 
 if st.button("💾 Save / Update FAQ in DB"):
     for step_num, file in st.session_state['pending_screenshots'].items():
