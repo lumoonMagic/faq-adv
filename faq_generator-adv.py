@@ -98,9 +98,10 @@ def parse_uploaded_doc(doc_file):
 def validate_with_gemini(question, steps_text):
     model = genai.GenerativeModel("gemini-2.5-flash")
     prompt = f"""The FAQ question is: "{question}".
-Here are the step-by-step instructions:
+This question relates to a custom internal FAQ generator app that documents troubleshooting steps.
+Here are the user-provided steps:
 {steps_text}
-Validate if these steps address the FAQ question, highlight gaps, suggest improvements."""
+Please validate if these steps address the question appropriately, highlight gaps or irrelevant parts, and suggest improvements specific to this app."""
     response = model.generate_content(prompt)
     return response.text.strip()
 
@@ -141,7 +142,6 @@ faq_entry = faq_map.get(selected_q)
 faq_data = faq_entry["data"] if faq_entry else {}
 content = faq_data.get("content", {})
 
-# Handle FAQ switch reset
 if 'current_faq_id' not in st.session_state:
     st.session_state['current_faq_id'] = None
 if 'parsed_doc' not in st.session_state:
@@ -152,6 +152,8 @@ if selected_q:
     if st.session_state['current_faq_id'] != current_id:
         st.session_state['steps'] = content.get("steps", [])
         st.session_state['parsed_doc'] = False
+        st.session_state['summary'] = content.get("summary", "")
+        st.session_state['notes'] = content.get("notes", "")
         for k in list(st.session_state.keys()):
             if k.startswith("step_text_") or k.startswith("step_query_") or k.startswith("step_ss_"):
                 st.session_state.pop(k)
@@ -161,14 +163,30 @@ uploaded_doc = st.file_uploader("Upload Existing FAQ Word Document (Optional)", 
 if uploaded_doc and not st.session_state['parsed_doc']:
     content = parse_uploaded_doc(uploaded_doc)
     st.session_state['steps'] = content.get("steps", [])
+    st.session_state['parsed_summary'] = content.get("summary", "").strip()
+    st.session_state['parsed_notes'] = content.get("notes", "").strip()
     st.session_state['parsed_doc'] = True
     st.success("Document parsed! Review below.")
-    st.json(content)
+    with st.expander("🔍 Parsed Document JSON (click to expand)"):
+        st.json(content)
+
+if 'parsed_summary' in st.session_state:
+    with st.expander("🔍 Parsed Document Summary"):
+        st.write(st.session_state['parsed_summary'])
+    if st.button("Replace form summary with parsed summary"):
+        st.session_state['summary'] = st.session_state['parsed_summary']
+
+if 'parsed_notes' in st.session_state:
+    with st.expander("🔍 Parsed Document Notes"):
+        st.write(st.session_state['parsed_notes'])
+    if st.button("Replace form notes with parsed notes"):
+        st.session_state['notes'] = st.session_state['parsed_notes']
+
+summary = st.text_area("Summary", key="summary")
+notes = st.text_area("Notes", key="notes")
 
 if 'steps' not in st.session_state:
     st.session_state['steps'] = content.get("steps", [])
-
-summary = st.text_area("Summary", value=content.get("summary", ""))
 
 if st.button("Add Step"):
     st.session_state['steps'].append({"text": "", "query": "", "screenshot": ""})
@@ -195,58 +213,9 @@ for idx, step in enumerate(st.session_state['steps']):
     if step["screenshot"]:
         st.image(step["screenshot"], caption=f"Step {idx+1} Screenshot")
 
-notes = st.text_area("Notes", value=content.get("notes", ""))
-
 if st.button("Validate with Gemini") and selected_q:
     steps_text = "\n".join([f"Step {i+1}: {s['text']}" for i, s in enumerate(st.session_state['steps'])])
     with st.spinner("Validating..."):
         feedback = validate_with_gemini(selected_q, steps_text)
     st.subheader("Gemini Feedback")
     st.write(feedback)
-
-if st.button("Generate Word Document") and selected_q:
-    doc = Document()
-    doc.add_heading("FAQ Document", level=1)
-    doc.add_heading("Question", level=2)
-    doc.add_paragraph(selected_q)
-    doc.add_heading("Summary", level=2)
-    doc.add_paragraph(summary)
-    doc.add_heading("Steps", level=2)
-    for idx, step in enumerate(st.session_state['steps']):
-        doc.add_paragraph(f"Step {idx+1}: {step['text']}")
-        if step["query"]:
-            doc.add_paragraph(f"Query Template: {step['query']}")
-        if step["screenshot"]:
-            doc.add_paragraph(f"Screenshot for Step {idx+1}:")
-            img_data = requests.get(step["screenshot"]).content
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
-                tmpfile.write(img_data)
-                tmpfile.flush()
-                doc.add_picture(tmpfile.name, width=Inches(4))
-    doc.add_heading("Additional Notes", level=2)
-    doc.add_paragraph(notes)
-
-    temp_stream = io.BytesIO()
-    doc.save(temp_stream)
-    temp_stream.seek(0)
-
-    versions = faq_data.get("doc_versions", [])
-    new_version = len(versions) + 1
-    doc_url = upload_word_doc(faq_entry["id"], new_version, temp_stream)
-
-    faq_data["content"] = {
-        "summary": summary,
-        "steps": st.session_state['steps'],
-        "notes": notes
-    }
-    versions.append({
-        "url": doc_url,
-        "generated_at": datetime.datetime.utcnow().isoformat() + "Z"
-    })
-    faq_data["doc_versions"] = versions
-    save_faq_data(faq_entry["id"], faq_data)
-
-    st.success("Word document generated + uploaded!")
-    st.download_button("Download Latest Document", data=temp_stream.getvalue(),
-                       file_name=f"FAQ_{selected_q}.docx",
-                       mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
