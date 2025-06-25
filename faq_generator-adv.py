@@ -141,18 +141,29 @@ faq_entry = faq_map.get(selected_q)
 faq_data = faq_entry["data"] if faq_entry else {}
 content = faq_data.get("content", {})
 
-if selected_q and st.button("🗑️ Delete this FAQ"):
-    delete_faq(faq_entry["id"])
-    st.success("FAQ deleted. Please refresh.")
-    st.stop()
+# Handle FAQ switch reset
+if 'current_faq_id' not in st.session_state:
+    st.session_state['current_faq_id'] = None
+if 'parsed_doc' not in st.session_state:
+    st.session_state['parsed_doc'] = False
 
 if selected_q:
-    uploaded_doc = st.file_uploader("Upload Existing FAQ Word Document (Optional)", type="docx")
-    if uploaded_doc:
-        content = parse_uploaded_doc(uploaded_doc)
+    current_id = faq_entry["id"]
+    if st.session_state['current_faq_id'] != current_id:
         st.session_state['steps'] = content.get("steps", [])
-        st.success("Document parsed! Review below.")
-        st.json(content)
+        st.session_state['parsed_doc'] = False
+        for k in list(st.session_state.keys()):
+            if k.startswith("step_text_") or k.startswith("step_query_") or k.startswith("step_ss_"):
+                st.session_state.pop(k)
+        st.session_state['current_faq_id'] = current_id
+
+uploaded_doc = st.file_uploader("Upload Existing FAQ Word Document (Optional)", type="docx")
+if uploaded_doc and not st.session_state['parsed_doc']:
+    content = parse_uploaded_doc(uploaded_doc)
+    st.session_state['steps'] = content.get("steps", [])
+    st.session_state['parsed_doc'] = True
+    st.success("Document parsed! Review below.")
+    st.json(content)
 
 if 'steps' not in st.session_state:
     st.session_state['steps'] = content.get("steps", [])
@@ -168,13 +179,8 @@ for idx, step in enumerate(st.session_state['steps']):
     if f"step_query_{idx}" not in st.session_state:
         st.session_state[f"step_query_{idx}"] = step["query"]
 
-    st.session_state['steps'][idx]["text"] = st.text_input(
-        f"Step {idx+1} Text", key=f"step_text_{idx}"
-    )
-
-    st.session_state['steps'][idx]["query"] = st.text_area(
-        f"Step {idx+1} Query", key=f"step_query_{idx}"
-    )
+    st.session_state['steps'][idx]["text"] = st.text_input(f"Step {idx+1} Text", key=f"step_text_{idx}")
+    st.session_state['steps'][idx]["query"] = st.text_area(f"Step {idx+1} Query", key=f"step_query_{idx}")
 
     uploaded_ss = st.file_uploader(
         f"Upload / Paste Screenshot for Step {idx+1}",
