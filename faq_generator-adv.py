@@ -45,7 +45,6 @@ def upload_screenshot(faq_id, step_num, file):
     if response.status_code not in [200, 201]:
         st.error(f"Upload failed: {response.status_code}, {response.text}")
         return None
-    # Return URL with cache-busting query param
     return f"{SUPABASE_URL}/storage/v1/object/public/faq-screenshots/{file_path}?t={int(datetime.datetime.utcnow().timestamp())}"
 
 def upload_word_doc(faq_id, version, file_content):
@@ -147,6 +146,7 @@ if selected_q and st.button("🗑️ Delete this FAQ"):
     st.success("FAQ deleted. Please refresh.")
     st.stop()
 
+# Only parse and set session state when uploading new doc
 if selected_q:
     uploaded_doc = st.file_uploader("Upload Existing FAQ Word Document (Optional)", type="docx")
     if uploaded_doc:
@@ -155,10 +155,11 @@ if selected_q:
         st.success("Document parsed! Review below.")
         st.json(content)
 
-summary = st.text_area("Summary", value=content.get("summary", ""))
-
+# Ensure steps are initialized once
 if 'steps' not in st.session_state:
     st.session_state['steps'] = content.get("steps", [])
+
+summary = st.text_area("Summary", value=content.get("summary", ""))
 
 if st.button("Add Step"):
     st.session_state['steps'].append({"text": "", "query": "", "screenshot": ""})
