@@ -6,6 +6,7 @@ import tempfile
 import httpx
 from supabase import create_client
 import google.generativeai as genai
+import re
 
 # --- CONFIG ---
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
@@ -68,7 +69,8 @@ def parse_uploaded_doc(doc_file):
                 elif "screenshot" in lower:
                     continue
                 else:
-                    content["steps"][-1]["text"] += " " + line
+                    clean_line = re.sub(r"^step\s*\d+\s*:\s*", "", line, flags=re.IGNORECASE).strip()
+                    content["steps"][-1]["text"] += " " + clean_line
         elif current_section == "notes":
             content["notes"] += line + " "
 
@@ -104,32 +106,26 @@ faq_map = {f["data"]["question"]: f for f in faqs if isinstance(f.get("data"), d
 questions = list(faq_map.keys())
 assignees = list({f["data"]["assignee"] for f in faqs if isinstance(f.get("data"), dict) and f["data"].get("assignee")})
 
-assignee = st.selectbox("Select Assignee", assignees) if assignees else None
+assignee = st.selectbox("Select Assignee", assignees, key="assignee_select") if assignees else None
 faq_options = [q for q in questions if faq_map[q]["data"].get("assignee") == assignee] if assignee else []
-selected_q = st.selectbox("Select FAQ", faq_options) if faq_options else None
+selected_q = st.selectbox("Select FAQ", faq_options, key="faq_select") if faq_options else None
 
 faq_entry = faq_map.get(selected_q)
 faq_data = faq_entry["data"] if faq_entry else {}
 content = faq_data.get("content", {})
 
-if 'current_faq_id' not in st.session_state:
-    st.session_state['current_faq_id'] = None
-if 'parsed_doc' not in st.session_state:
-    st.session_state['parsed_doc'] = False
-if 'pending_screenshots' not in st.session_state:
-    st.session_state['pending_screenshots'] = {}
+# Reset state on FAQ change
+if 'last_selected_q' not in st.session_state:
+    st.session_state['last_selected_q'] = None
 
-# Clear data when switching FAQ
-if selected_q:
-    current_id = faq_entry["id"]
-    if st.session_state['current_faq_id'] != current_id:
-        st.session_state['steps'] = content.get("steps", [])
-        st.session_state['summary'] = content.get("summary", "")
-        st.session_state['notes'] = content.get("notes", "")
-        st.session_state['pending_screenshots'] = {}
-        st.session_state['parsed_doc'] = False
-        st.session_state['uploaded_doc'] = None
-        st.session_state['current_faq_id'] = current_id
+if selected_q != st.session_state['last_selected_q']:
+    st.session_state['steps'] = content.get("steps", [])
+    st.session_state['summary'] = content.get("summary", "")
+    st.session_state['notes'] = content.get("notes", "")
+    st.session_state['pending_screenshots'] = {}
+    st.session_state['parsed_doc'] = False
+    st.session_state['uploaded_doc'] = None
+    st.session_state['last_selected_q'] = selected_q
 
 uploaded_doc = st.file_uploader("Upload Word Document", type="docx", key="doc_upload")
 if uploaded_doc and not st.session_state['parsed_doc']:
@@ -149,15 +145,15 @@ if st.button("Add Step"):
     st.session_state['steps'].append({"text": "", "query": "", "screenshot": ""})
 
 for idx, step in enumerate(st.session_state['steps']):
-    st.session_state['steps'][idx]["text"] = st.text_input(f"Step {idx+1} Text", value=step["text"], key=f"text_{idx}")
-    st.session_state['steps'][idx]["query"] = st.text_area(f"Step {idx+1} Query", value=step["query"], key=f"query_{idx}")
-    uploaded_ss = st.file_uploader(f"Upload Screenshot for Step {idx+1}", type=["png", "jpg"], key=f"ss_{idx}")
+    st.session_state['steps'][idx]["text"] = st.text_input(f"Step {idx+1} Text", value=step["text"], key=f"text_{idx}_{selected_q}")
+    st.session_state['steps'][idx]["query"] = st.text_area(f"Step {idx+1} Query", value=step["query"], key=f"query_{idx}_{selected_q}")
+    uploaded_ss = st.file_uploader(f"Upload Screenshot for Step {idx+1}", type=["png", "jpg"], key=f"ss_{idx}_{selected_q}")
     if uploaded_ss:
         st.session_state['pending_screenshots'][idx+1] = uploaded_ss
-    if step["screenshot"]:
-        st.image(step["screenshot"], caption=f"Step {idx+1} Screenshot")
+        st.image(uploaded_ss, caption=f"Pending upload Step {idx+1} Screenshot", width=300)
+    elif step["screenshot"]:
+        st.image(step["screenshot"], caption=f"Saved Step {idx+1} Screenshot", width=300)
 
-# Save / Update FAQ button
 if st.button("💾 Save / Update FAQ in DB"):
     for step_num, file in st.session_state['pending_screenshots'].items():
         url = upload_screenshot(faq_entry["id"], step_num, file)
@@ -167,9 +163,9 @@ if st.button("💾 Save / Update FAQ in DB"):
         "question": selected_q,
         "assignee": faq_entry["data"].get("assignee"),
         "content": {
-            "summary": st.session_state["summary"],
+            "summary": summary,
             "steps": st.session_state["steps"],
-            "notes": st.session_state["notes"]
+            "notes": notes
         }
     }
     supabase.table("faqs_adv").update({"data": updated_data, "updated_at": "now()"}).eq("id", faq_entry["id"]).execute()
