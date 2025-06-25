@@ -134,14 +134,17 @@ if selected_q != st.session_state['last_selected_q']:
     st.session_state['uploaded_doc'] = None
     st.session_state['last_selected_q'] = selected_q
 
-uploaded_doc = st.file_uploader("Upload Word Document", type="docx", key="doc_upload")
+# Use dynamic key to reset uploader cleanly
+uploaded_doc = st.file_uploader("Upload Word Document", type="docx", key=f"doc_upload_{selected_q}")
 if uploaded_doc and not st.session_state['parsed_doc']:
     parsed = parse_uploaded_doc(uploaded_doc)
     st.session_state['steps'] = parsed.get("steps", [])
     st.session_state['summary'] = parsed.get("summary", "")
     st.session_state['notes'] = parsed.get("notes", "")
     st.session_state['parsed_doc'] = True
-    st.experimental_rerun()  # Clear uploader & refresh
+    st.info("✅ Document parsed. You can now proceed.")
+    with st.expander("🔍 Parsed Document JSON"):
+        st.json(parsed)
 
 summary = st.text_area("Summary", value=st.session_state.get("summary", ""))
 notes = st.text_area("Notes", value=st.session_state.get("notes", ""))
