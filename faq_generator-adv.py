@@ -1,7 +1,9 @@
 import streamlit as st
-from docx import Document
+from docx import Document as DocxDocument
+from docx.shared import Inches
 import datetime
 import re
+import tempfile
 import httpx
 from supabase import create_client
 import google.generativeai as genai
@@ -37,7 +39,7 @@ def upload_screenshot(faq_id, step_num, file):
     return f"{SUPABASE_URL}/storage/v1/object/public/faq-screenshots/{file_path}?t={int(datetime.datetime.utcnow().timestamp())}"
 
 def parse_uploaded_doc(doc_file):
-    doc = Document(doc_file)
+    doc = DocxDocument(doc_file)
     content = {"summary": "", "steps": [], "notes": ""}
     lines = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
     
@@ -177,3 +179,34 @@ if st.button("Validate with Gemini") and selected_q:
         feedback = validate_with_gemini(selected_q, steps_text)
     st.subheader("Gemini Feedback")
     st.write(feedback)
+
+if st.button("📄 Generate FAQ Document"):
+    doc = DocxDocument()
+    doc.add_heading('FAQ Document', level=1)
+    doc.add_heading('Question', level=2)
+    doc.add_paragraph(selected_q)
+
+    doc.add_heading('Summary', level=2)
+    doc.add_paragraph(st.session_state['summary'])
+
+    doc.add_heading('Steps', level=2)
+    for i, step in enumerate(st.session_state['steps']):
+        doc.add_paragraph(f"Step {i+1}: {step['text']}")
+        if step['query']:
+            doc.add_paragraph(f"Query Template: {step['query']}")
+        if step['screenshot']:
+            tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            response = httpx.get(step['screenshot'])
+            tmp_file.write(response.content)
+            tmp_file.flush()
+            doc.add_picture(tmp_file.name, width=Inches(4))
+
+    doc.add_heading('Additional Notes', level=2)
+    doc.add_paragraph(st.session_state['notes'])
+
+    tmp_out = tempfile.NamedTemporaryFile(delete=False, suffix='.docx')
+    doc.save(tmp_out.name)
+    st.success("✅ FAQ document generated!")
+    st.download_button("📥 Download FAQ Document", data=open(tmp_out.name, 'rb').read(),
+                       file_name='FAQ_Generated.docx',
+                       mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
