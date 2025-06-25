@@ -146,7 +146,6 @@ if selected_q and st.button("🗑️ Delete this FAQ"):
     st.success("FAQ deleted. Please refresh.")
     st.stop()
 
-# Only parse and set session state when uploading new doc
 if selected_q:
     uploaded_doc = st.file_uploader("Upload Existing FAQ Word Document (Optional)", type="docx")
     if uploaded_doc:
@@ -155,7 +154,6 @@ if selected_q:
         st.success("Document parsed! Review below.")
         st.json(content)
 
-# Ensure steps are initialized once
 if 'steps' not in st.session_state:
     st.session_state['steps'] = content.get("steps", [])
 
@@ -165,8 +163,19 @@ if st.button("Add Step"):
     st.session_state['steps'].append({"text": "", "query": "", "screenshot": ""})
 
 for idx, step in enumerate(st.session_state['steps']):
-    st.session_state['steps'][idx]["text"] = st.text_input(f"Step {idx+1} Text", value=step["text"], key=f"step_text_{idx}")
-    st.session_state['steps'][idx]["query"] = st.text_area(f"Step {idx+1} Query", value=step["query"], key=f"step_query_{idx}")
+    if f"step_text_{idx}" not in st.session_state:
+        st.session_state[f"step_text_{idx}"] = step["text"]
+    if f"step_query_{idx}" not in st.session_state:
+        st.session_state[f"step_query_{idx}"] = step["query"]
+
+    st.session_state['steps'][idx]["text"] = st.text_input(
+        f"Step {idx+1} Text", key=f"step_text_{idx}"
+    )
+
+    st.session_state['steps'][idx]["query"] = st.text_area(
+        f"Step {idx+1} Query", key=f"step_query_{idx}"
+    )
+
     uploaded_ss = st.file_uploader(
         f"Upload / Paste Screenshot for Step {idx+1}",
         type=["png", "jpg", "jpeg"],
