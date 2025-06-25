@@ -41,22 +41,28 @@ def upload_screenshot(faq_id, step_num, file):
 def parse_uploaded_doc(doc_file):
     doc = DocxDocument(doc_file)
     content = {"summary": "", "steps": [], "notes": ""}
-    lines = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
     current_section = None
+    for p in doc.paragraphs:
+        line = p.text.strip()
+        if not line:
+            continue
 
-    for line in lines:
-        lower = line.lower()
-        if lower == "summary":
+        if line == "[Summary]":
             current_section = "summary"
             continue
-        elif lower == "steps":
+        elif line == "[Steps]":
             current_section = "steps"
             continue
-        elif lower.startswith("step"):
-            current_section = "steps"
-            content["steps"].append({"text": line, "query": "", "screenshot": ""})
+        elif re.match(r"\[Step \d+\]", line):
+            content["steps"].append({"text": "", "query": "", "screenshot": ""})
             continue
-        elif lower.startswith("additional notes"):
+        elif line == "[Query Template]":
+            current_section = "query"
+            continue
+        elif line == "[Screenshot]":
+            current_section = "screenshot"
+            continue
+        elif line == "[Additional Notes]":
             current_section = "notes"
             continue
 
@@ -64,18 +70,21 @@ def parse_uploaded_doc(doc_file):
             content["summary"] += line + " "
         elif current_section == "steps":
             if content["steps"]:
-                if lower.startswith("query template"):
-                    content["steps"][-1]["query"] += " " + line
-                elif "screenshot" in lower:
-                    continue
-                else:
-                    clean_line = re.sub(r"^step\s*\d+\s*:\s*", "", line, flags=re.IGNORECASE).strip()
-                    content["steps"][-1]["text"] += " " + clean_line
+                content["steps"][-1]["text"] += line + " "
+        elif current_section == "query":
+            if content["steps"]:
+                content["steps"][-1]["query"] += line + " "
+        elif current_section == "screenshot":
+            # marker only, no action needed; image handled separately
+            continue
         elif current_section == "notes":
             content["notes"] += line + " "
 
     content["summary"] = content["summary"].strip()
     content["notes"] = content["notes"].strip()
+    for step in content["steps"]:
+        step["text"] = step["text"].strip()
+        step["query"] = step["query"].strip()
     return content
 
 def validate_with_gemini(question, steps_text):
@@ -134,6 +143,7 @@ if uploaded_doc and not st.session_state['parsed_doc']:
     st.session_state['summary'] = parsed.get("summary", "")
     st.session_state['notes'] = parsed.get("notes", "")
     st.session_state['parsed_doc'] = True
+    st.session_state['uploaded_doc'] = None  # Clear after parse
     st.success("Document parsed! Review below.")
     with st.expander("🔍 Parsed Document JSON"):
         st.json(parsed)
@@ -174,22 +184,24 @@ if st.button("💾 Save / Update FAQ in DB"):
 if st.button("📄 Generate FAQ Document"):
     doc = DocxDocument()
     doc.add_heading('FAQ Document', level=1)
-    doc.add_heading('Question', level=2)
-    doc.add_paragraph(selected_q)
-    doc.add_heading('Summary', level=2)
+    doc.add_paragraph(f"Question: {selected_q}")
+    doc.add_paragraph("[Summary]")
     doc.add_paragraph(st.session_state["summary"])
-    doc.add_heading('Steps', level=2)
+    doc.add_paragraph("[Steps]")
     for i, step in enumerate(st.session_state['steps']):
-        doc.add_paragraph(f"Step {i+1}: {step['text']}")
+        doc.add_paragraph(f"[Step {i+1}]")
+        doc.add_paragraph(step['text'])
         if step['query']:
-            doc.add_paragraph(f"Query Template: {step['query']}")
+            doc.add_paragraph("[Query Template]")
+            doc.add_paragraph(step['query'])
         if step['screenshot']:
+            doc.add_paragraph("[Screenshot]")
             tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
             response = httpx.get(step['screenshot'])
             tmp_file.write(response.content)
             tmp_file.flush()
             doc.add_picture(tmp_file.name, width=Inches(4))
-    doc.add_heading('Additional Notes', level=2)
+    doc.add_paragraph("[Additional Notes]")
     doc.add_paragraph(st.session_state["notes"])
     tmp_out = tempfile.NamedTemporaryFile(delete=False, suffix='.docx')
     doc.save(tmp_out.name)
