@@ -35,17 +35,18 @@ def delete_faq(faq_id):
 
 def upload_screenshot(faq_id, step_num, file):
     file_path = f"{faq_id}/step_{step_num}.png"
-    url = f"{SUPABASE_URL}/storage/v1/object/faq-screenshots/{file_path}"
+    url_upload = f"{SUPABASE_URL}/storage/v1/object/faq-screenshots/{file_path}"
     headers = {
         "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "image/png",
         "x-upsert": "true"
     }
-    response = httpx.post(url, headers=headers, content=file.getvalue())
+    response = httpx.post(url_upload, headers=headers, content=file.getvalue())
     if response.status_code not in [200, 201]:
         st.error(f"Upload failed: {response.status_code}, {response.text}")
         return None
-    return f"{SUPABASE_URL}/storage/v1/object/public/faq-screenshots/{file_path}"
+    # Return URL with cache-busting query param
+    return f"{SUPABASE_URL}/storage/v1/object/public/faq-screenshots/{file_path}?t={int(datetime.datetime.utcnow().timestamp())}"
 
 def upload_word_doc(faq_id, version, file_content):
     file_path = f"faq-{faq_id}-v{version}.docx"
