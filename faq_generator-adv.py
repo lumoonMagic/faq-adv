@@ -2,7 +2,6 @@ import streamlit as st
 from docx import Document as DocxDocument
 from docx.shared import Inches
 import datetime
-import re
 import tempfile
 import httpx
 from supabase import create_client
@@ -42,12 +41,10 @@ def parse_uploaded_doc(doc_file):
     doc = DocxDocument(doc_file)
     content = {"summary": "", "steps": [], "notes": ""}
     lines = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-    
     current_section = None
 
     for line in lines:
         lower = line.lower()
-
         if lower == "summary":
             current_section = "summary"
             continue
@@ -119,76 +116,72 @@ if 'current_faq_id' not in st.session_state:
     st.session_state['current_faq_id'] = None
 if 'parsed_doc' not in st.session_state:
     st.session_state['parsed_doc'] = False
+if 'pending_screenshots' not in st.session_state:
+    st.session_state['pending_screenshots'] = {}
 
+# Clear data when switching FAQ
 if selected_q:
     current_id = faq_entry["id"]
     if st.session_state['current_faq_id'] != current_id:
         st.session_state['steps'] = content.get("steps", [])
         st.session_state['summary'] = content.get("summary", "")
         st.session_state['notes'] = content.get("notes", "")
+        st.session_state['pending_screenshots'] = {}
         st.session_state['parsed_doc'] = False
+        st.session_state['uploaded_doc'] = None
         st.session_state['current_faq_id'] = current_id
 
-uploaded_doc = st.file_uploader("Upload Word Document", type="docx")
+uploaded_doc = st.file_uploader("Upload Word Document", type="docx", key="doc_upload")
 if uploaded_doc and not st.session_state['parsed_doc']:
     parsed = parse_uploaded_doc(uploaded_doc)
     st.session_state['steps'] = parsed.get("steps", [])
-    st.session_state['parsed_summary'] = parsed.get("summary", "")
-    st.session_state['parsed_notes'] = parsed.get("notes", "")
+    st.session_state['summary'] = parsed.get("summary", "")
+    st.session_state['notes'] = parsed.get("notes", "")
     st.session_state['parsed_doc'] = True
     st.success("Document parsed! Review below.")
-    st.write(f"✅ Parsed Summary Preview:\n{st.session_state['parsed_summary']}")
     with st.expander("🔍 Parsed Document JSON"):
         st.json(parsed)
 
-if 'parsed_summary' in st.session_state:
-    with st.expander("🔍 Parsed Document Summary"):
-        st.write(st.session_state['parsed_summary'])
-    if st.button("Replace form summary with parsed summary"):
-        st.session_state['summary'] = st.session_state['parsed_summary']
-
-if 'parsed_notes' in st.session_state:
-    with st.expander("🔍 Parsed Document Notes"):
-        st.write(st.session_state['parsed_notes'])
-    if st.button("Replace form notes with parsed notes"):
-        st.session_state['notes'] = st.session_state['parsed_notes']
-
-summary = st.text_area("Summary", key="summary")
-notes = st.text_area("Notes", key="notes")
-
-if 'steps' not in st.session_state:
-    st.session_state['steps'] = []
+summary = st.text_area("Summary", value=st.session_state.get("summary", ""))
+notes = st.text_area("Notes", value=st.session_state.get("notes", ""))
 
 if st.button("Add Step"):
     st.session_state['steps'].append({"text": "", "query": "", "screenshot": ""})
 
 for idx, step in enumerate(st.session_state['steps']):
-    st.session_state['steps'][idx]["text"] = st.text_input(f"Step {idx+1} Text", value=step["text"])
-    st.session_state['steps'][idx]["query"] = st.text_area(f"Step {idx+1} Query", value=step["query"])
+    st.session_state['steps'][idx]["text"] = st.text_input(f"Step {idx+1} Text", value=step["text"], key=f"text_{idx}")
+    st.session_state['steps'][idx]["query"] = st.text_area(f"Step {idx+1} Query", value=step["query"], key=f"query_{idx}")
     uploaded_ss = st.file_uploader(f"Upload Screenshot for Step {idx+1}", type=["png", "jpg"], key=f"ss_{idx}")
     if uploaded_ss:
-        url = upload_screenshot(faq_entry["id"], idx+1, uploaded_ss)
-        if url:
-            st.session_state['steps'][idx]["screenshot"] = url
+        st.session_state['pending_screenshots'][idx+1] = uploaded_ss
     if step["screenshot"]:
         st.image(step["screenshot"], caption=f"Step {idx+1} Screenshot")
 
-if st.button("Validate with Gemini") and selected_q:
-    steps_text = "\n".join([f"Step {i+1}: {s['text']}" for i, s in enumerate(st.session_state['steps'])])
-    with st.spinner("Validating..."):
-        feedback = validate_with_gemini(selected_q, steps_text)
-    st.subheader("Gemini Feedback")
-    st.write(feedback)
+# Save / Update FAQ button
+if st.button("💾 Save / Update FAQ in DB"):
+    for step_num, file in st.session_state['pending_screenshots'].items():
+        url = upload_screenshot(faq_entry["id"], step_num, file)
+        if url:
+            st.session_state['steps'][step_num-1]["screenshot"] = url
+    updated_data = {
+        "question": selected_q,
+        "assignee": faq_entry["data"].get("assignee"),
+        "content": {
+            "summary": st.session_state["summary"],
+            "steps": st.session_state["steps"],
+            "notes": st.session_state["notes"]
+        }
+    }
+    supabase.table("faqs_adv").update({"data": updated_data, "updated_at": "now()"}).eq("id", faq_entry["id"]).execute()
+    st.success("✅ FAQ updated and saved in DB!")
 
 if st.button("📄 Generate FAQ Document"):
     doc = DocxDocument()
     doc.add_heading('FAQ Document', level=1)
     doc.add_heading('Question', level=2)
     doc.add_paragraph(selected_q)
-
     doc.add_heading('Summary', level=2)
-    doc.add_paragraph(st.session_state['summary'])
-
+    doc.add_paragraph(st.session_state["summary"])
     doc.add_heading('Steps', level=2)
     for i, step in enumerate(st.session_state['steps']):
         doc.add_paragraph(f"Step {i+1}: {step['text']}")
@@ -200,13 +193,18 @@ if st.button("📄 Generate FAQ Document"):
             tmp_file.write(response.content)
             tmp_file.flush()
             doc.add_picture(tmp_file.name, width=Inches(4))
-
     doc.add_heading('Additional Notes', level=2)
-    doc.add_paragraph(st.session_state['notes'])
-
+    doc.add_paragraph(st.session_state["notes"])
     tmp_out = tempfile.NamedTemporaryFile(delete=False, suffix='.docx')
     doc.save(tmp_out.name)
     st.success("✅ FAQ document generated!")
     st.download_button("📥 Download FAQ Document", data=open(tmp_out.name, 'rb').read(),
                        file_name='FAQ_Generated.docx',
                        mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+
+if st.button("Validate with Gemini") and selected_q:
+    steps_text = "\n".join([f"Step {i+1}: {s['text']}" for i, s in enumerate(st.session_state['steps'])])
+    with st.spinner("Validating..."):
+        feedback = validate_with_gemini(selected_q, steps_text)
+    st.subheader("Gemini Feedback")
+    st.write(feedback)
