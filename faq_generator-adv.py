@@ -16,7 +16,10 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 genai.configure(api_key=GEMINI_API_KEY)
 
 # --- SAFE RERUN HANDLER ---
-if st.session_state.get("trigger_rerun"):
+if "has_rendered_once" not in st.session_state:
+    st.session_state["has_rendered_once"] = False
+
+if st.session_state["has_rendered_once"] and st.session_state.get("trigger_rerun"):
     st.session_state["trigger_rerun"] = False
     st.experimental_rerun()
 
@@ -231,3 +234,6 @@ if st.button("Validate with Gemini") and selected_q:
         feedback = validate_with_gemini(selected_q, steps_text)
     st.subheader("Gemini Feedback")
     st.write(feedback)
+
+# --- Mark app as rendered ---
+st.session_state["has_rendered_once"] = True
