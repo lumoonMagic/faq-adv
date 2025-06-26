@@ -15,14 +15,6 @@ GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 genai.configure(api_key=GEMINI_API_KEY)
 
-# --- SAFE RERUN HANDLER ---
-if "has_rendered_once" not in st.session_state:
-    st.session_state["has_rendered_once"] = False
-
-if st.session_state["has_rendered_once"] and st.session_state.get("trigger_rerun"):
-    st.session_state["trigger_rerun"] = False
-    st.experimental_rerun()
-
 # --- UTILS ---
 def load_faqs():
     resp = supabase.table("faqs_adv").select("*").execute()
@@ -136,6 +128,7 @@ if selected_q != st.session_state['last_selected_q']:
     st.session_state['pending_screenshots'] = {}
     st.session_state['parsed_doc'] = False
     st.session_state['uploaded_doc'] = None
+    st.session_state['pending_remove_idx'] = None
     st.session_state['last_selected_q'] = selected_q
 
 uploaded_doc = st.file_uploader("Upload Word Document", type="docx", key=f"doc_upload_{selected_q}")
@@ -155,7 +148,6 @@ notes = st.text_area("Notes", value=st.session_state.get("notes", ""))
 if st.button("Add Step"):
     st.session_state['steps'].append({"text": "", "query": "", "screenshot": ""})
 
-remove_idx = None
 for idx, step in enumerate(st.session_state['steps']):
     col1, col2 = st.columns([5, 1])
     with col1:
@@ -171,16 +163,22 @@ for idx, step in enumerate(st.session_state['steps']):
         elif step["screenshot"]:
             st.image(step["screenshot"], caption=f"Saved Step {idx+1} Screenshot", width=300)
     with col2:
-        confirm = st.checkbox(f"Confirm remove {idx+1}", key=f"confirm_{idx}_{selected_q}")
         if st.button(f"❌ Remove Step {idx+1}", key=f"remove_{idx}_{selected_q}"):
-            if confirm:
-                remove_idx = idx
-            else:
-                st.warning("Please check confirm box before removing.")
+            st.session_state['pending_remove_idx'] = idx
 
-if remove_idx is not None:
-    st.session_state['steps'].pop(remove_idx)
-    st.session_state["trigger_rerun"] = True
+# Confirm remove logic
+if st.session_state.get("pending_remove_idx") is not None:
+    idx = st.session_state["pending_remove_idx"]
+    st.warning(f"Confirm removal of Step {idx+1}?")
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        if st.button("✅ Confirm Remove"):
+            st.session_state['steps'].pop(idx)
+            st.session_state["pending_remove_idx"] = None
+            st.experimental_rerun()
+    with col_c2:
+        if st.button("❌ Cancel Remove"):
+            st.session_state["pending_remove_idx"] = None
 
 if st.button("💾 Save / Update FAQ in DB"):
     for step_num, file in st.session_state['pending_screenshots'].items():
@@ -234,6 +232,3 @@ if st.button("Validate with Gemini") and selected_q:
         feedback = validate_with_gemini(selected_q, steps_text)
     st.subheader("Gemini Feedback")
     st.write(feedback)
-
-# --- Mark app as rendered ---
-st.session_state["has_rendered_once"] = True
