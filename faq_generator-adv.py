@@ -15,11 +15,6 @@ GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 genai.configure(api_key=GEMINI_API_KEY)
 
-# --- SAFE RERUN ---
-if st.session_state.get("trigger_rerun"):
-    st.session_state["trigger_rerun"] = False
-    st.experimental_rerun()
-
 # --- UTILS ---
 def load_faqs():
     resp = supabase.table("faqs_adv").select("*").execute()
@@ -177,9 +172,11 @@ if st.session_state.get("pending_remove_idx") is not None:
     col_c1, col_c2 = st.columns(2)
     with col_c1:
         if st.button("✅ Confirm Remove"):
-            st.session_state['steps'].pop(idx)
+            st.session_state['steps'] = [
+                s for i, s in enumerate(st.session_state['steps']) if i != idx
+            ]
             st.session_state["pending_remove_idx"] = None
-            st.session_state["trigger_rerun"] = True
+            st.success(f"Removed Step {idx+1}")
     with col_c2:
         if st.button("❌ Cancel Remove"):
             st.session_state["pending_remove_idx"] = None
