@@ -150,6 +150,7 @@ notes = st.text_area("Notes", value=st.session_state.get("notes", ""))
 if st.button("Add Step"):
     st.session_state['steps'].append({"text": "", "query": "", "screenshot": ""})
 
+remove_idx = None
 for idx, step in enumerate(st.session_state['steps']):
     col1, col2 = st.columns([5, 1])
     with col1:
@@ -166,8 +167,11 @@ for idx, step in enumerate(st.session_state['steps']):
             st.image(step["screenshot"], caption=f"Saved Step {idx+1} Screenshot", width=300)
     with col2:
         if st.button(f"➖", key=f"remove_{idx}_{selected_q}"):
-            st.session_state['steps'].pop(idx)
-            st.experimental_rerun()
+            remove_idx = idx
+
+if remove_idx is not None:
+    st.session_state['steps'].pop(remove_idx)
+    st.experimental_rerun()
 
 if st.button("💾 Save / Update FAQ in DB"):
     for step_num, file in st.session_state['pending_screenshots'].items():
