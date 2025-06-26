@@ -15,6 +15,11 @@ GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 genai.configure(api_key=GEMINI_API_KEY)
 
+# --- SAFE RERUN HANDLER ---
+if st.session_state.get("trigger_rerun"):
+    st.session_state["trigger_rerun"] = False
+    st.experimental_rerun()
+
 # --- UTILS ---
 def load_faqs():
     resp = supabase.table("faqs_adv").select("*").execute()
@@ -46,7 +51,6 @@ def parse_uploaded_doc(doc_file):
         line = p.text.strip()
         if not line:
             continue
-
         if line == "[Summary]":
             current_section = "summary"
             continue
@@ -66,7 +70,6 @@ def parse_uploaded_doc(doc_file):
         elif line == "[Additional Notes]":
             current_section = "notes"
             continue
-
         if current_section == "summary":
             content["summary"] += line + " "
         elif current_section == "step_text":
@@ -77,7 +80,6 @@ def parse_uploaded_doc(doc_file):
                 content["steps"][-1]["query"] += line + " "
         elif current_section == "notes":
             content["notes"] += line + " "
-
     content["summary"] = content["summary"].strip()
     content["notes"] = content["notes"].strip()
     for step in content["steps"]:
@@ -166,12 +168,16 @@ for idx, step in enumerate(st.session_state['steps']):
         elif step["screenshot"]:
             st.image(step["screenshot"], caption=f"Saved Step {idx+1} Screenshot", width=300)
     with col2:
-        if st.button(f"➖", key=f"remove_{idx}_{selected_q}"):
-            remove_idx = idx
+        confirm = st.checkbox(f"Confirm remove {idx+1}", key=f"confirm_{idx}_{selected_q}")
+        if st.button(f"❌ Remove Step {idx+1}", key=f"remove_{idx}_{selected_q}"):
+            if confirm:
+                remove_idx = idx
+            else:
+                st.warning("Please check confirm box before removing.")
 
 if remove_idx is not None:
     st.session_state['steps'].pop(remove_idx)
-    st.experimental_rerun()
+    st.session_state["trigger_rerun"] = True
 
 if st.button("💾 Save / Update FAQ in DB"):
     for step_num, file in st.session_state['pending_screenshots'].items():
