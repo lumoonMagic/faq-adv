@@ -47,17 +47,20 @@ assignees = sorted(list(set([faq["data"].get("assignee", "") for faq in st.sessi
 selected_assignee = st.selectbox("👤 Select Assignee", assignees)
 
 faq_options = [faq for faq in st.session_state.faq_data if faq["data"].get("assignee") == selected_assignee]
-faq_map = {faq["data"]["question"]: faq for faq in faq_options}
+faq_map = {faq["data"]["question"]: faq for faq in faq_options if "data" in faq and "question" in faq["data"]}
 questions = list(faq_map.keys())
 selected_q = st.selectbox("❓ Select FAQ", questions)
-faq_entry = faq_map.get(selected_q)
+faq_entry = faq_map.get(selected_q, {})
 faq_data = faq_entry.get("data", {}) if faq_entry else {}
 
 # --- Inputs ---
 st.subheader(f"📌 Editing FAQ: {selected_q}")
 summary = st.text_area("[Summary]", value=faq_data.get("content", {}).get("summary", ""))
 notes = st.text_area("[Additional Notes]", value=faq_data.get("content", {}).get("notes", ""))
-keywords_input = st.text_input("Keywords (comma-separated)", value=", ".join(faq_entry.get("keywords", [])))
+keywords_input = st.text_input(
+    "Keywords (comma-separated)", 
+    value=", ".join(faq_entry.get("keywords", []) if faq_entry else [])
+)
 keywords_list = [k.strip() for k in keywords_input.split(",") if k.strip()]
 
 if "steps" not in st.session_state:
@@ -131,7 +134,7 @@ if st.button("💾 Save / Update FAQ in DB"):
 
     updated_data = {
         "question": selected_q,
-        "assignee": faq_entry["data"].get("assignee"),
+        "assignee": faq_entry.get("data", {}).get("assignee", "") if faq_entry else "",
         "content": {
             "summary": summary,
             "steps": st.session_state["steps"],
@@ -144,6 +147,6 @@ if st.button("💾 Save / Update FAQ in DB"):
         "title": selected_q,
         "question": selected_q,
         "keywords": keywords_list
-    }).eq("id", faq_entry["id"]).execute()
+    }).eq("id", faq_entry.get("id", "")).execute()
 
     st.success("✅ FAQ updated successfully!")
