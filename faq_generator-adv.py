@@ -59,7 +59,7 @@ summary = st.text_area("[Summary]", value=faq_data.get("content", {}).get("summa
 notes = st.text_area("[Additional Notes]", value=faq_data.get("content", {}).get("notes", ""))
 keywords_input = st.text_input(
     "Keywords (comma-separated)",
-    value=", ".join(faq_entry["keywords"]) if faq_entry and "keywords" in faq_entry else ""
+    value=", ".join(faq_entry.get("keywords", []) if isinstance(faq_entry.get("keywords", None), list) else [])
 )
 keywords_list = [k.strip() for k in keywords_input.split(",") if k.strip()]
 
